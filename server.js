@@ -14,8 +14,7 @@ mongoose.connect(process.env.MONGO_URL)
 // ===================== MODEL =====================
 const LicenseSchema = new mongoose.Schema({
     key: String,
-    hwid: String,
-    blocked: { type: Boolean, default: false }
+    hwid: String
 });
 
 const License = mongoose.model("License", LicenseSchema);
@@ -36,8 +35,7 @@ app.post("/addkey", async (req, res) => {
 
     await License.create({
         key,
-        hwid: null,
-        blocked: false
+        hwid: null
     });
 
     res.json({ status: "added" });
@@ -52,29 +50,26 @@ app.post("/activate", async (req, res) => {
     if (!license)
         return res.json({ status: "invalid" });
 
-    // ===================== PERMANENT BLOCK =====================
-
-    // لو متبند قبل كده → مرفوض نهائي
-    if (license.blocked)
-        return res.json({ status: "blocked" });
-
-    // أول جهاز يتسجل
+    // ===================== FIRST DEVICE =====================
     if (!license.hwid) {
         license.hwid = hwid;
-        license.blocked = false;
-        await license.save();
-    }
-
-    // جهاز مختلف → بلوك دايم
-    if (license.hwid !== hwid) {
-        license.blocked = true;
         await license.save();
 
-        return res.json({ status: "blocked" });
+        return res.json({
+            status: "session"
+        });
     }
 
-    res.json({
-        status: "session"
+    // ===================== SAME DEVICE =====================
+    if (license.hwid === hwid) {
+        return res.json({
+            status: "session"
+        });
+    }
+
+    // ===================== DIFFERENT DEVICE =====================
+    return res.json({
+        status: "blocked"
     });
 });
 
@@ -88,7 +83,6 @@ app.post("/reset", async (req, res) => {
         return res.json({ status: "invalid" });
 
     license.hwid = null;
-    license.blocked = false;
 
     await license.save();
 
