@@ -28,6 +28,9 @@ app.get("/", (req, res) => {
 app.post("/addkey", async (req, res) => {
     const { key } = req.body;
 
+    if (!key)
+        return res.json({ status: "error" });
+
     const exists = await License.findOne({ key });
 
     if (exists)
@@ -44,6 +47,10 @@ app.post("/addkey", async (req, res) => {
 // ===================== ACTIVATE =====================
 app.post("/activate", async (req, res) => {
     const { key, hwid } = req.body;
+
+    // 🔥 IMPORTANT DEBUG SAFETY
+    if (!key || !hwid)
+        return res.json({ status: "invalid" });
 
     const license = await License.findOne({ key });
 
@@ -67,13 +74,13 @@ app.post("/activate", async (req, res) => {
         });
     }
 
-    // ===================== DIFFERENT DEVICE =====================
+    // ===================== OTHER DEVICE =====================
     return res.json({
         status: "blocked"
     });
 });
 
-// ===================== RESET (ADMIN ONLY) =====================
+// ===================== RESET =====================
 app.post("/reset", async (req, res) => {
     const { key } = req.body;
 
