@@ -3,9 +3,10 @@ const app = express();
 
 const PORT = process.env.PORT || 3000;
 
+// مهم جدًا
 app.use(express.json());
 
-// ===================== FAKE DATABASE =====================
+// ===================== DATABASE =====================
 let licenses = [
   {
     key: "ABC-KEY",
@@ -13,32 +14,12 @@ let licenses = [
   }
 ];
 
-// ===================== HOME =====================
+// ===================== HOME (GET) =====================
 app.get("/", (req, res) => {
   res.send("Server is working 🔥");
 });
 
-// ===================== ADD KEY (POSTMAN) =====================
-app.post("/addkey", (req, res) => {
-  const { key } = req.body;
-
-  if (!key)
-    return res.json({ status: "error", message: "no key provided" });
-
-  let exists = licenses.find(l => l.key === key);
-
-  if (exists)
-    return res.json({ status: "exists" });
-
-  licenses.push({
-    key: key,
-    hwid: null
-  });
-
-  res.json({ status: "added", key: key });
-});
-
-// ===================== ACTIVATE KEY + HWID =====================
+// ===================== ADD KEY =====================
 app.post("/addkey", (req, res) => {
   const { key, hwid } = req.body;
 
@@ -52,17 +33,46 @@ app.post("/addkey", (req, res) => {
 
   licenses.push({
     key: key,
-    hwid: hwid || null // ممكن تضيف hwid أو تسيبه فاضي
+    hwid: hwid || null
   });
 
   res.json({
     status: "added",
-    key: key,
+    key,
     hwid: hwid || null
   });
 });
 
-// ===================== LIST KEYS (OPTIONAL DEBUG) =====================
+// ===================== ACTIVATE KEY =====================
+app.post("/activate", (req, res) => {
+  const { key, hwid } = req.body;
+
+  console.log("ACTIVATE HIT:", req.body);
+
+  if (!key || !hwid)
+    return res.json({ status: "error", message: "missing key or hwid" });
+
+  let license = licenses.find(l => l.key === key);
+
+  if (!license)
+    return res.json({ status: "invalid" });
+
+  // أول جهاز
+  if (!license.hwid) {
+    license.hwid = hwid;
+    return res.json({ status: "activated" });
+  }
+
+  // نفس الجهاز
+  if (license.hwid === hwid) {
+    return res.json({ status: "activated" });
+  }
+
+  // جهاز مختلف
+  return res.json({ status: "used" });
+});
+
+// ===================== DEBUG =====================
 app.get("/keys", (req, res) => {
   res.json(licenses);
 });
