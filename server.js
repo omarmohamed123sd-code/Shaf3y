@@ -16,13 +16,12 @@ const LicenseSchema = new mongoose.Schema({
     key: String,
     hwid: String,
     isOnline: { type: Boolean, default: false },
-    lastSeen: Date,
-    sessionId: String
+    lastSeen: Date
 });
 
 const License = mongoose.model("License", LicenseSchema);
 
-// ===================== ACTIVATE =====================
+// ===================== ACTIVATE (ATOMIC FIX) =====================
 app.post("/activate", async (req, res) => {
     const { key, hwid } = req.body;
 
@@ -34,47 +33,61 @@ app.post("/activate", async (req, res) => {
     // bind HWID first time
     if (!license.hwid) {
         license.hwid = hwid;
+        await license.save();
     }
 
     if (license.hwid !== hwid)
         return res.json({ status: "used on another device" });
 
-    // ===================== STRONG LOCK =====================
+    // ===================== ATOMIC LOCK =====================
     const now = Date.now();
     const last = license.lastSeen ? new Date(license.lastSeen).getTime() : 0;
     const diff = (now - last) / 1000;
 
-    // لو في Session شغالة ولسه alive
-    if (license.isOnline && diff <= 10) {
+    // لو session شغالة ولسه جديدة
+    if (license.isOnline && diff < 10) {
         return res.json({ status: "already running" });
     }
 
-    // 🧠 نعمل Session جديدة
-    license.isOnline = true;
-    license.lastSeen = new Date();
-    license.sessionId = Math.random().toString(36).substring(2);
+    // 🔥 أهم جزء: قفل ذري (Atomic Lock)
+    const locked = await License.findOneAndUpdate(
+        {
+            key: key,
+            $or: [
+                { isOnline: false },
+                { lastSeen: { $lt: new Date(Date.now() - 10000) } }
+            ]
+        },
+        {
+            $set: {
+                isOnline: true,
+                lastSeen: new Date()
+            }
+        },
+        { new: true }
+    );
 
-    await license.save();
+    if (!locked) {
+        return res.json({ status: "already running" });
+    }
 
     res.json({
-        status: "activated",
-        sessionId: license.sessionId
+        status: "activated"
     });
 });
 
 // ===================== HEARTBEAT =====================
 app.post("/heartbeat", async (req, res) => {
-    const { key, hwid, sessionId } = req.body;
+    const { key, hwid } = req.body;
 
     const license = await License.findOne({ key });
 
     if (!license)
         return res.json({ status: "invalid" });
 
-    // لازم نفس الجهاز + نفس session
-    if (license.hwid === hwid && license.sessionId === sessionId) {
-        license.lastSeen = new Date();
+    if (license.hwid === hwid) {
         license.isOnline = true;
+        license.lastSeen = new Date();
         await license.save();
     }
 
@@ -83,16 +96,15 @@ app.post("/heartbeat", async (req, res) => {
 
 // ===================== LOGOUT =====================
 app.post("/logout", async (req, res) => {
-    const { key, hwid, sessionId } = req.body;
+    const { key, hwid } = req.body;
 
     const license = await License.findOne({ key });
 
     if (!license)
         return res.json({ status: "invalid" });
 
-    if (license.hwid === hwid && license.sessionId === sessionId) {
+    if (license.hwid === hwid) {
         license.isOnline = false;
-        license.sessionId = null;
         await license.save();
     }
 
@@ -110,7 +122,6 @@ app.post("/reset", async (req, res) => {
 
     license.isOnline = false;
     license.hwid = null;
-    license.sessionId = null;
     license.lastSeen = null;
 
     await license.save();
