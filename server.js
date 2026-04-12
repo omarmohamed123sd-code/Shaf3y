@@ -39,29 +39,27 @@ app.post("/addkey", (req, res) => {
 });
 
 // ===================== ACTIVATE KEY + HWID =====================
-app.post("/activate", (req, res) => {
+app.post("/addkey", (req, res) => {
   const { key, hwid } = req.body;
 
-  if (!key || !hwid)
-    return res.json({ status: "error", message: "missing data" });
+  if (!key)
+    return res.json({ status: "error", message: "no key" });
 
-  let license = licenses.find(l => l.key === key);
+  let exists = licenses.find(l => l.key === key);
 
-  if (!license)
-    return res.json({ status: "invalid" });
+  if (exists)
+    return res.json({ status: "exists" });
 
-  // أول استخدام
-  if (!license.hwid) {
-    license.hwid = hwid;
-    return res.json({ status: "activated" });
-  }
+  licenses.push({
+    key: key,
+    hwid: hwid || null // ممكن تضيف hwid أو تسيبه فاضي
+  });
 
-  // نفس الجهاز
-  if (license.hwid === hwid)
-    return res.json({ status: "activated" });
-
-  // جهاز مختلف
-  return res.json({ status: "used" });
+  res.json({
+    status: "added",
+    key: key,
+    hwid: hwid || null
+  });
 });
 
 // ===================== LIST KEYS (OPTIONAL DEBUG) =====================
