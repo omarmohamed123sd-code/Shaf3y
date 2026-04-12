@@ -15,8 +15,7 @@ mongoose.connect(process.env.MONGO_URL)
 const LicenseSchema = new mongoose.Schema({
     key: String,
     hwid: String,
-    sessionId: String,
-    lastHeartbeat: Date
+    blocked: { type: Boolean, default: false }
 });
 
 const License = mongoose.model("License", LicenseSchema);
@@ -38,8 +37,7 @@ app.post("/addkey", async (req, res) => {
     await License.create({
         key,
         hwid: null,
-        sessionId: null,
-        lastHeartbeat: null
+        blocked: false
     });
 
     res.json({ status: "added" });
@@ -54,70 +52,33 @@ app.post("/activate", async (req, res) => {
     if (!license)
         return res.json({ status: "invalid" });
 
-    // ===================== HWID LOCK (FOREVER) =====================
+    // ===================== PERMANENT BLOCK =====================
+
+    // لو متبند قبل كده → مرفوض نهائي
+    if (license.blocked)
+        return res.json({ status: "blocked" });
+
+    // أول جهاز يتسجل
     if (!license.hwid) {
         license.hwid = hwid;
+        license.blocked = false;
+        await license.save();
     }
 
-    if (license.hwid !== hwid)
-        return res.json({ status: "used on another device" });
+    // جهاز مختلف → بلوك دايم
+    if (license.hwid !== hwid) {
+        license.blocked = true;
+        await license.save();
 
-    const now = Date.now();
-
-    // ===================== STILL ACTIVE SESSION =====================
-    if (
-        license.sessionId &&
-        license.lastHeartbeat &&
-        (now - new Date(license.lastHeartbeat).getTime()) < 15000
-    ) {
-        return res.json({
-            status: "already running",
-            sessionId: license.sessionId
-        });
+        return res.json({ status: "blocked" });
     }
-
-    // ===================== CREATE NEW SESSION =====================
-    license.sessionId = Math.random().toString(36).substring(2);
-    license.lastHeartbeat = new Date();
-
-    await license.save();
 
     res.json({
-        status: "activated",
-        sessionId: license.sessionId
+        status: "session"
     });
 });
 
-// ===================== HEARTBEAT =====================
-app.post("/heartbeat", async (req, res) => {
-    const { key, sessionId } = req.body;
-
-    const license = await License.findOne({ key });
-
-    if (license && license.sessionId === sessionId) {
-        license.lastHeartbeat = new Date();
-        await license.save();
-    }
-
-    res.json({ status: "ok" });
-});
-
-// ===================== LOGOUT =====================
-app.post("/logout", async (req, res) => {
-    const { key, sessionId } = req.body;
-
-    const license = await License.findOne({ key });
-
-    if (license && license.sessionId === sessionId) {
-        license.sessionId = null;
-        license.lastHeartbeat = null;
-        await license.save();
-    }
-
-    res.json({ status: "offline" });
-});
-
-// ===================== RESET =====================
+// ===================== RESET (ADMIN ONLY) =====================
 app.post("/reset", async (req, res) => {
     const { key } = req.body;
 
@@ -127,8 +88,7 @@ app.post("/reset", async (req, res) => {
         return res.json({ status: "invalid" });
 
     license.hwid = null;
-    license.sessionId = null;
-    license.lastHeartbeat = null;
+    license.blocked = false;
 
     await license.save();
 
