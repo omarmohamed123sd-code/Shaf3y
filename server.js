@@ -30,7 +30,7 @@ app.post("/activate", async (req, res) => {
     if (!license)
         return res.json({ status: "invalid" });
 
-    // bind hwid first time
+    // ربط HWID أول مرة
     if (!license.hwid) {
         license.hwid = hwid;
     }
@@ -38,13 +38,19 @@ app.post("/activate", async (req, res) => {
     if (license.hwid !== hwid)
         return res.json({ status: "used on another device" });
 
-    // auto fix stale session
-    if (license.isOnline && license.lastSeen) {
-        const diff = (Date.now() - new Date(license.lastSeen)) / 1000;
+    // ===================== FIX STUCK SESSIONS =====================
+    const now = Date.now();
+    const last = license.lastSeen ? new Date(license.lastSeen).getTime() : 0;
+    const diff = (now - last) / 1000;
 
-        if (diff < 30) {
-            return res.json({ status: "already running" });
-        }
+    // لو مفيش heartbeat من 30 ثانية → نعتبره offline
+    if (license.isOnline && diff > 30) {
+        license.isOnline = false;
+    }
+
+    // لو لسه شغال فعلاً
+    if (license.isOnline) {
+        return res.json({ status: "already running" });
     }
 
     license.isOnline = true;
@@ -88,6 +94,24 @@ app.post("/logout", async (req, res) => {
     }
 
     res.json({ status: "offline" });
+});
+
+// ===================== RESET =====================
+app.post("/reset", async (req, res) => {
+    const { key } = req.body;
+
+    const license = await License.findOne({ key });
+
+    if (!license)
+        return res.json({ status: "invalid" });
+
+    license.isOnline = false;
+    license.hwid = null;
+    license.lastSeen = null;
+
+    await license.save();
+
+    res.json({ status: "reset done" });
 });
 
 // ===================== START =====================
