@@ -16,41 +16,49 @@ const LicenseSchema = new mongoose.Schema({
     key: String,
     hwid: String,
     isOnline: { type: Boolean, default: false },
-    lastSeen: Date
+    lastSeen: Date,
+    sessionId: String
 });
 
 const License = mongoose.model("License", LicenseSchema);
 
-// ===================== ACTIVATE (ATOMIC FIX) =====================
+// ===================== HOME =====================
+app.get("/", (req, res) => {
+    res.send("Server is working 🔥");
+});
+
+// ===================== ADD KEY =====================
+app.post("/addkey", async (req, res) => {
+    const { key, hwid } = req.body;
+
+    if (!key)
+        return res.json({ status: "error", message: "key required" });
+
+    const exists = await License.findOne({ key });
+
+    if (exists)
+        return res.json({ status: "exists" });
+
+    await License.create({
+        key,
+        hwid: hwid || null,
+        isOnline: false,
+        lastSeen: null,
+        sessionId: null
+    });
+
+    res.json({ status: "added" });
+});
+
+// ===================== ACTIVATE (STRONG LOCK) =====================
 app.post("/activate", async (req, res) => {
     const { key, hwid } = req.body;
 
-    const license = await License.findOne({ key });
+    if (!key || !hwid)
+        return res.json({ status: "error" });
 
-    if (!license)
-        return res.json({ status: "invalid" });
-
-    // bind HWID first time
-    if (!license.hwid) {
-        license.hwid = hwid;
-        await license.save();
-    }
-
-    if (license.hwid !== hwid)
-        return res.json({ status: "used on another device" });
-
-    // ===================== ATOMIC LOCK =====================
-    const now = Date.now();
-    const last = license.lastSeen ? new Date(license.lastSeen).getTime() : 0;
-    const diff = (now - last) / 1000;
-
-    // لو session شغالة ولسه جديدة
-    if (license.isOnline && diff < 10) {
-        return res.json({ status: "already running" });
-    }
-
-    // 🔥 أهم جزء: قفل ذري (Atomic Lock)
-    const locked = await License.findOneAndUpdate(
+    // 🔥 ATOMIC LOCK (MongoDB handles concurrency)
+    const license = await License.findOneAndUpdate(
         {
             key: key,
             $or: [
@@ -60,34 +68,48 @@ app.post("/activate", async (req, res) => {
         },
         {
             $set: {
+                hwid: hwid,
                 isOnline: true,
                 lastSeen: new Date()
+            },
+            $setOnInsert: {
+                sessionId: Math.random().toString(36).substring(2)
             }
         },
         { new: true }
     );
 
-    if (!locked) {
+    // ❌ already taken by another device
+    if (!license) {
         return res.json({ status: "already running" });
     }
 
+    // ❌ wrong device
+    if (license.hwid !== hwid) {
+        return res.json({ status: "used on another device" });
+    }
+
     res.json({
-        status: "activated"
+        status: "activated",
+        sessionId: license.sessionId
     });
 });
 
 // ===================== HEARTBEAT =====================
 app.post("/heartbeat", async (req, res) => {
-    const { key, hwid } = req.body;
+    const { key, hwid, sessionId } = req.body;
 
     const license = await License.findOne({ key });
 
     if (!license)
         return res.json({ status: "invalid" });
 
-    if (license.hwid === hwid) {
-        license.isOnline = true;
+    if (
+        license.hwid === hwid &&
+        license.sessionId === sessionId
+    ) {
         license.lastSeen = new Date();
+        license.isOnline = true;
         await license.save();
     }
 
@@ -96,15 +118,19 @@ app.post("/heartbeat", async (req, res) => {
 
 // ===================== LOGOUT =====================
 app.post("/logout", async (req, res) => {
-    const { key, hwid } = req.body;
+    const { key, hwid, sessionId } = req.body;
 
     const license = await License.findOne({ key });
 
     if (!license)
         return res.json({ status: "invalid" });
 
-    if (license.hwid === hwid) {
+    if (
+        license.hwid === hwid &&
+        license.sessionId === sessionId
+    ) {
         license.isOnline = false;
+        license.sessionId = null;
         await license.save();
     }
 
@@ -120,9 +146,10 @@ app.post("/reset", async (req, res) => {
     if (!license)
         return res.json({ status: "invalid" });
 
-    license.isOnline = false;
     license.hwid = null;
+    license.isOnline = false;
     license.lastSeen = null;
+    license.sessionId = null;
 
     await license.save();
 
