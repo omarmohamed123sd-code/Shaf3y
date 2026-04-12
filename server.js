@@ -7,20 +7,16 @@ const PORT = process.env.PORT || 3000;
 // ===================== MIDDLEWARE =====================
 app.use(express.json());
 
-// ===================== SAFE START CHECK =====================
-if (!process.env.MONGO_URL) {
-    console.log("❌ MONGO_URL is missing in Railway Variables");
-}
-
 // ===================== MONGO CONNECT =====================
 mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("MongoDB Connected 🔥"))
 .catch(err => console.log("Mongo Error:", err));
 
-// ===================== MODEL =====================
+// ===================== SCHEMA =====================
 const LicenseSchema = new mongoose.Schema({
-    key: { type: String, unique: true },
-    hwid: { type: String, default: null }
+    key: String,
+    hwid: String,
+    isOnline: { type: Boolean, default: false }
 });
 
 const License = mongoose.model("License", LicenseSchema);
@@ -32,97 +28,102 @@ app.get("/", (req, res) => {
 
 // ===================== ADD KEY =====================
 app.post("/addkey", async (req, res) => {
-    try {
-        const { key, hwid } = req.body;
+    const { key, hwid } = req.body;
 
-        if (!key)
-            return res.json({ status: "error", message: "key required" });
+    if (!key)
+        return res.json({ status: "error", message: "key required" });
 
-        const exists = await License.findOne({ key });
+    const exists = await License.findOne({ key });
 
-        if (exists)
-            return res.json({ status: "exists" });
+    if (exists)
+        return res.json({ status: "exists" });
 
-        await License.create({
-            key,
-            hwid: hwid || null
-        });
+    await License.create({
+        key,
+        hwid: hwid || null,
+        isOnline: false
+    });
 
-        res.json({ status: "added", key, hwid: hwid || null });
-
-    } catch (err) {
-        res.json({ status: "error", message: err.message });
-    }
+    res.json({ status: "added", key });
 });
 
 // ===================== ACTIVATE =====================
 app.post("/activate", async (req, res) => {
-    try {
-        const { key, hwid } = req.body;
+    const { key, hwid } = req.body;
 
-        if (!key || !hwid)
-            return res.json({ status: "error", message: "missing key or hwid" });
+    if (!key || !hwid)
+        return res.json({ status: "error", message: "missing data" });
 
-        const license = await License.findOne({ key });
+    const license = await License.findOne({ key });
 
-        if (!license)
-            return res.json({ status: "invalid" });
+    if (!license)
+        return res.json({ status: "invalid" });
 
-        // أول جهاز
-        if (!license.hwid) {
-            license.hwid = hwid;
-            await license.save();
-            return res.json({ status: "activated" });
-        }
-
-        // نفس الجهاز
-        if (license.hwid === hwid) {
-            return res.json({ status: "activated" });
-        }
-
-        // جهاز مختلف
-        return res.json({ status: "used" });
-
-    } catch (err) {
-        res.json({ status: "error", message: err.message });
+    // أول مرة ربط HWID
+    if (!license.hwid) {
+        license.hwid = hwid;
     }
+
+    // جهاز مختلف
+    if (license.hwid !== hwid) {
+        return res.json({ status: "used on another device" });
+    }
+
+    // لو شغال بالفعل
+    if (license.isOnline) {
+        return res.json({ status: "already running" });
+    }
+
+    license.isOnline = true;
+    await license.save();
+
+    res.json({ status: "activated" });
 });
 
-// ===================== RESET =====================
-app.post("/reset", async (req, res) => {
-    try {
-        const { key } = req.body;
+// ===================== LOGOUT =====================
+app.post("/logout", async (req, res) => {
+    const { key, hwid } = req.body;
 
-        const license = await License.findOne({ key });
+    const license = await License.findOne({ key });
 
-        if (!license)
-            return res.json({ status: "invalid" });
+    if (!license)
+        return res.json({ status: "invalid" });
 
-        license.hwid = null;
+    if (license.hwid === hwid) {
+        license.isOnline = false;
         await license.save();
-
-        res.json({ status: "reset done" });
-
-    } catch (err) {
-        res.json({ status: "error", message: err.message });
     }
+
+    res.json({ status: "offline" });
 });
 
-// ===================== DELETE =====================
+// ===================== RESET HWID =====================
+app.post("/reset", async (req, res) => {
+    const { key } = req.body;
+
+    const license = await License.findOne({ key });
+
+    if (!license)
+        return res.json({ status: "invalid" });
+
+    license.hwid = null;
+    license.isOnline = false;
+
+    await license.save();
+
+    res.json({ status: "reset done" });
+});
+
+// ===================== DELETE KEY =====================
 app.post("/deletekey", async (req, res) => {
-    try {
-        const { key } = req.body;
+    const { key } = req.body;
 
-        await License.deleteOne({ key });
+    await License.deleteOne({ key });
 
-        res.json({ status: "deleted", key });
-
-    } catch (err) {
-        res.json({ status: "error", message: err.message });
-    }
+    res.json({ status: "deleted" });
 });
 
-// ===================== DEBUG =====================
+// ===================== GET KEYS =====================
 app.get("/keys", async (req, res) => {
     const data = await License.find();
     res.json(data);
