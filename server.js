@@ -38,17 +38,17 @@ app.post("/activate", async (req, res) => {
     if (license.hwid !== hwid)
         return res.json({ status: "used on another device" });
 
-    // ===================== FIX STUCK SESSIONS =====================
+    // ===================== AUTO UNLOCK AFTER 3 SEC =====================
     const now = Date.now();
     const last = license.lastSeen ? new Date(license.lastSeen).getTime() : 0;
     const diff = (now - last) / 1000;
 
-    // لو مفيش heartbeat من 30 ثانية → نعتبره offline
-    if (license.isOnline && diff > 30) {
+    // 🔥 3 seconds timeout
+    if (license.isOnline && diff > 3) {
         license.isOnline = false;
     }
 
-    // لو لسه شغال فعلاً
+    // لو لسه شغال فعليًا
     if (license.isOnline) {
         return res.json({ status: "already running" });
     }
