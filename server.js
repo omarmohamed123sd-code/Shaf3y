@@ -9,9 +9,9 @@ app.use(express.json());
 // ===================== DB =====================
 mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("MongoDB Connected 🔥"))
-.catch(err => console.log("Mongo Error:", err));
+.catch(err => console.log(err));
 
-// ===================== SCHEMA =====================
+// ===================== MODEL =====================
 const LicenseSchema = new mongoose.Schema({
     key: String,
     hwid: String,
@@ -22,43 +22,53 @@ const LicenseSchema = new mongoose.Schema({
 
 const License = mongoose.model("License", LicenseSchema);
 
-// ===================== HOME =====================
+// ===================== TEST =====================
 app.get("/", (req, res) => {
     res.send("Server is working 🔥");
 });
 
 // ===================== ADD KEY =====================
 app.post("/addkey", async (req, res) => {
-    const { key, hwid } = req.body;
-
-    if (!key)
-        return res.json({ status: "error", message: "key required" });
+    const { key } = req.body;
 
     const exists = await License.findOne({ key });
 
     if (exists)
         return res.json({ status: "exists" });
 
-    await License.create({
-        key,
-        hwid: hwid || null,
-        isOnline: false,
-        lastSeen: null,
-        sessionId: null
-    });
+    await License.create({ key });
 
     res.json({ status: "added" });
 });
 
-// ===================== ACTIVATE (STRONG LOCK) =====================
+// ===================== ACTIVATE (FULL LOCK) =====================
 app.post("/activate", async (req, res) => {
     const { key, hwid } = req.body;
 
-    if (!key || !hwid)
-        return res.json({ status: "error" });
+    const license = await License.findOne({ key });
 
-    // 🔥 ATOMIC LOCK (MongoDB handles concurrency)
-    const license = await License.findOneAndUpdate(
+    if (!license)
+        return res.json({ status: "invalid" });
+
+    // bind HWID
+    if (!license.hwid) {
+        license.hwid = hwid;
+        await license.save();
+    }
+
+    if (license.hwid !== hwid)
+        return res.json({ status: "used on another device" });
+
+    // check active session
+    const now = Date.now();
+    const last = license.lastSeen ? new Date(license.lastSeen).getTime() : 0;
+
+    if (license.isOnline && (now - last) < 10000) {
+        return res.json({ status: "already running" });
+    }
+
+    // 🔥 ATOMIC LOCK (IMPORTANT PART)
+    const locked = await License.findOneAndUpdate(
         {
             key: key,
             $or: [
@@ -68,30 +78,21 @@ app.post("/activate", async (req, res) => {
         },
         {
             $set: {
-                hwid: hwid,
                 isOnline: true,
-                lastSeen: new Date()
-            },
-            $setOnInsert: {
+                lastSeen: new Date(),
                 sessionId: Math.random().toString(36).substring(2)
             }
         },
         { new: true }
     );
 
-    // ❌ already taken by another device
-    if (!license) {
+    if (!locked) {
         return res.json({ status: "already running" });
-    }
-
-    // ❌ wrong device
-    if (license.hwid !== hwid) {
-        return res.json({ status: "used on another device" });
     }
 
     res.json({
         status: "activated",
-        sessionId: license.sessionId
+        sessionId: locked.sessionId
     });
 });
 
@@ -101,10 +102,8 @@ app.post("/heartbeat", async (req, res) => {
 
     const license = await License.findOne({ key });
 
-    if (!license)
-        return res.json({ status: "invalid" });
-
     if (
+        license &&
         license.hwid === hwid &&
         license.sessionId === sessionId
     ) {
@@ -122,10 +121,8 @@ app.post("/logout", async (req, res) => {
 
     const license = await License.findOne({ key });
 
-    if (!license)
-        return res.json({ status: "invalid" });
-
     if (
+        license &&
         license.hwid === hwid &&
         license.sessionId === sessionId
     ) {
