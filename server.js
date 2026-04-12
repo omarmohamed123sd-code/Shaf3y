@@ -11,12 +11,12 @@ mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("MongoDB Connected 🔥"))
 .catch(err => console.log(err));
 
-// ===================== SCHEMA =====================
+// ===================== MODEL =====================
 const LicenseSchema = new mongoose.Schema({
     key: String,
     hwid: String,
     sessionId: String,
-    loginExpiresAt: Date
+    lastHeartbeat: Date
 });
 
 const License = mongoose.model("License", LicenseSchema);
@@ -39,7 +39,7 @@ app.post("/addkey", async (req, res) => {
         key,
         hwid: null,
         sessionId: null,
-        loginExpiresAt: null
+        lastHeartbeat: null
     });
 
     res.json({ status: "added" });
@@ -54,7 +54,7 @@ app.post("/activate", async (req, res) => {
     if (!license)
         return res.json({ status: "invalid" });
 
-    // ===================== HWID LOCK (PERMANENT) =====================
+    // ===================== HWID LOCK (FOREVER) =====================
     if (!license.hwid) {
         license.hwid = hwid;
     }
@@ -64,11 +64,11 @@ app.post("/activate", async (req, res) => {
 
     const now = Date.now();
 
-    // ===================== STILL VALID SESSION =====================
+    // ===================== STILL ACTIVE SESSION =====================
     if (
         license.sessionId &&
-        license.loginExpiresAt &&
-        new Date(license.loginExpiresAt).getTime() > now
+        license.lastHeartbeat &&
+        (now - new Date(license.lastHeartbeat).getTime()) < 15000
     ) {
         return res.json({
             status: "already running",
@@ -78,7 +78,7 @@ app.post("/activate", async (req, res) => {
 
     // ===================== CREATE NEW SESSION =====================
     license.sessionId = Math.random().toString(36).substring(2);
-    license.loginExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000); // 2 hours
+    license.lastHeartbeat = new Date();
 
     await license.save();
 
@@ -90,16 +90,12 @@ app.post("/activate", async (req, res) => {
 
 // ===================== HEARTBEAT =====================
 app.post("/heartbeat", async (req, res) => {
-    const { key, hwid, sessionId } = req.body;
+    const { key, sessionId } = req.body;
 
     const license = await License.findOne({ key });
 
-    if (
-        license &&
-        license.hwid === hwid &&
-        license.sessionId === sessionId
-    ) {
-        license.loginExpiresAt = new Date(Date.now() + 2 * 60 * 60 * 1000);
+    if (license && license.sessionId === sessionId) {
+        license.lastHeartbeat = new Date();
         await license.save();
     }
 
@@ -112,19 +108,16 @@ app.post("/logout", async (req, res) => {
 
     const license = await License.findOne({ key });
 
-    if (
-        license &&
-        license.sessionId === sessionId
-    ) {
+    if (license && license.sessionId === sessionId) {
         license.sessionId = null;
-        license.loginExpiresAt = null;
+        license.lastHeartbeat = null;
         await license.save();
     }
 
-    res.json({ status: "logged out" });
+    res.json({ status: "offline" });
 });
 
-// ===================== RESET (ADMIN ONLY) =====================
+// ===================== RESET =====================
 app.post("/reset", async (req, res) => {
     const { key } = req.body;
 
@@ -135,7 +128,7 @@ app.post("/reset", async (req, res) => {
 
     license.hwid = null;
     license.sessionId = null;
-    license.loginExpiresAt = null;
+    license.lastHeartbeat = null;
 
     await license.save();
 
