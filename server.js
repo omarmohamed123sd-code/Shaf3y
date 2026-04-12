@@ -2,16 +2,12 @@ const express = require("express");
 const mongoose = require("mongoose");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 
-// ===================== DB =====================
 mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("MongoDB Connected 🔥"))
 .catch(err => console.log(err));
 
-// ===================== MODEL =====================
 const LicenseSchema = new mongoose.Schema({
     key: String,
     hwid: String
@@ -19,17 +15,9 @@ const LicenseSchema = new mongoose.Schema({
 
 const License = mongoose.model("License", LicenseSchema);
 
-// ===================== TEST =====================
-app.get("/", (req, res) => {
-    res.send("Server is working 🔥");
-});
-
 // ===================== ADD KEY =====================
 app.post("/addkey", async (req, res) => {
     const { key } = req.body;
-
-    if (!key)
-        return res.json({ status: "error" });
 
     const exists = await License.findOne({ key });
 
@@ -44,11 +32,10 @@ app.post("/addkey", async (req, res) => {
     res.json({ status: "added" });
 });
 
-// ===================== ACTIVATE =====================
+// ===================== ACTIVATE (FIXED LOGIC) =====================
 app.post("/activate", async (req, res) => {
     const { key, hwid } = req.body;
 
-    // 🔥 IMPORTANT DEBUG SAFETY
     if (!key || !hwid)
         return res.json({ status: "invalid" });
 
@@ -57,8 +44,9 @@ app.post("/activate", async (req, res) => {
     if (!license)
         return res.json({ status: "invalid" });
 
-    // ===================== FIRST DEVICE =====================
-    if (!license.hwid) {
+    // ===================== FIRST TIME ONLY =====================
+    if (license.hwid === null || license.hwid === undefined) {
+
         license.hwid = hwid;
         await license.save();
 
@@ -74,7 +62,7 @@ app.post("/activate", async (req, res) => {
         });
     }
 
-    // ===================== OTHER DEVICE =====================
+    // ===================== DIFFERENT DEVICE =====================
     return res.json({
         status: "blocked"
     });
@@ -96,7 +84,6 @@ app.post("/reset", async (req, res) => {
     res.json({ status: "reset done" });
 });
 
-// ===================== START =====================
-app.listen(PORT, () => {
-    console.log("Server running on port " + PORT);
+app.listen(3000, () => {
+    console.log("Server running 🔥");
 });
