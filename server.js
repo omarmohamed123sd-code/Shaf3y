@@ -3,7 +3,7 @@ const app = express();
 
 app.use(express.json());
 
-// Data مؤقتة (تقدر تغيرها بعد كده بداتا بيز)
+// 🔥 Users (مؤقت - بدل DB)
 let users = [
   {
     username: "test",
@@ -13,12 +13,15 @@ let users = [
   }
 ];
 
-// Endpoint
+// ✅ Root عشان يمنع Cannot GET /
+app.get("/", (req, res) => {
+  res.send("Server is running ✅");
+});
+
+// ✅ API الأساسي
 app.get("/api", (req, res) => {
   try {
-    const user = req.query.user;
-    const pass = req.query.pass;
-    const hwid = req.query.hwid;
+    const { user, pass, hwid } = req.query;
 
     if (!user || !pass || !hwid) {
       return res.send("missing_data");
@@ -36,18 +39,18 @@ app.get("/api", (req, res) => {
       return res.send("banned");
     }
 
-    // أول مرة
+    // 🔥 أول مرة
     if (!account.hwid) {
       account.hwid = hwid;
       return res.send("success_first_login");
     }
 
-    // نفس الجهاز
+    // ✅ نفس الجهاز
     if (account.hwid === hwid) {
       return res.send("success");
     }
 
-    // جهاز مختلف
+    // ❌ جهاز تاني
     return res.send("hwid_error");
 
   } catch (err) {
@@ -56,7 +59,7 @@ app.get("/api", (req, res) => {
   }
 });
 
-// مهم جدًا لـ Railway
+// 🚀 تشغيل السيرفر (مهم لـ Railway)
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
