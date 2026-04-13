@@ -1,127 +1,118 @@
-const express = require("express");
-const mongoose = require("mongoose");
+import express from "express";
+import cors from "cors";
+import fs from "fs";
 
 const app = express();
+app.use(cors());
 app.use(express.json());
 
-// ================= HEALTH CHECK =================
-app.get("/", (req, res) => {
-    res.json({ status: "server alive" });
-});
+const DB_FILE = "./keys.json";
 
-// ================= MONGO =================
-mongoose.connect(process.env.MONGO_URL)
-    .then(() => console.log("Mongo Connected"))
-    .catch(err => console.log("Mongo Error:", err));
+// ================= LOAD DB =================
+function loadDB() {
+    if (!fs.existsSync(DB_FILE)) return {};
+    return JSON.parse(fs.readFileSync(DB_FILE));
+}
 
-// ================= MODEL =================
-const UserSchema = new mongoose.Schema({
-    key: String,
-    hwid: { type: String, default: null },
-    banned: { type: Boolean, default: false }
-});
+// ================= SAVE DB =================
+function saveDB(data) {
+    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+}
 
-const User = mongoose.model("User", UserSchema);
+// ================= LOGIN / ACTIVATE =================
+app.post("/login", (req, res) => {
+    const { key, hwid } = req.body;
 
-// ================= LOGIN =================
-app.post("/login", async (req, res) => {
-    try {
-        const { key, hwid } = req.body;
-
-        if (!key || !hwid) {
-            return res.json({ status: "missing_data" });
-        }
-
-        const user = await User.findOne({ key });
-
-        if (!user) {
-            return res.json({ status: "wrong_key" });
-        }
-
-        if (user.banned) {
-            return res.json({ status: "banned" });
-        }
-
-        // first login bind HWID
-        if (!user.hwid) {
-            user.hwid = hwid;
-            await user.save();
-            return res.json({ status: "first_login" });
-        }
-
-        // HWID mismatch
-        if (user.hwid !== hwid) {
-            return res.json({ status: "hwid_locked" });
-        }
-
-        return res.json({ status: "success" });
-
-    } catch (err) {
-        console.log(err);
-        return res.json({ status: "server_error" });
+    if (!key || !hwid) {
+        return res.json({ status: "error", message: "missing_data" });
     }
+
+    let db = loadDB();
+
+    if (!db[key]) {
+        return res.json({ status: "error", message: "invalid_key" });
+    }
+
+    // أول تشغيل
+    if (!db[key].hwid) {
+        db[key].hwid = hwid;
+        saveDB(db);
+
+        return res.json({ status: "success", message: "first_login" });
+    }
+
+    // نفس الجهاز
+    if (db[key].hwid === hwid) {
+        return res.json({ status: "success", message: "activated" });
+    }
+
+    // جهاز مختلف
+    return res.json({ status: "error", message: "hwid_locked" });
 });
 
 // ================= CREATE KEY =================
-app.post("/create", async (req, res) => {
-    try {
-        const { key } = req.body;
+app.post("/create", (req, res) => {
+    const { key } = req.body;
 
-        if (!key) {
-            return res.json({ status: "missing_key" });
-        }
-
-        const exists = await User.findOne({ key });
-
-        if (exists) {
-            return res.json({ status: "key_exists" });
-        }
-
-        await User.create({ key });
-
-        return res.json({ status: "created" });
-
-    } catch (err) {
-        return res.json({ status: "error" });
+    if (!key) {
+        return res.json({ status: "error", message: "no_key" });
     }
+
+    let db = loadDB();
+
+    if (db[key]) {
+        return res.json({ status: "error", message: "exists" });
+    }
+
+    db[key] = { hwid: null };
+
+    saveDB(db);
+
+    res.json({ status: "success", message: "key_created" });
 });
 
-// ================= BAN USER =================
-app.post("/ban", async (req, res) => {
-    try {
-        const { key } = req.body;
+// ================= DELETE KEY =================
+app.delete("/key", (req, res) => {
+    const { key } = req.body;
 
-        await User.findOneAndUpdate(
-            { key },
-            { banned: true }
-        );
+    let db = loadDB();
 
-        return res.json({ status: "banned" });
-
-    } catch (err) {
-        return res.json({ status: "error" });
+    if (!db[key]) {
+        return res.json({ status: "error", message: "not_found" });
     }
+
+    delete db[key];
+
+    saveDB(db);
+
+    res.json({ status: "success", message: "deleted" });
 });
 
 // ================= GET ALL KEYS =================
-app.get("/keys", async (req, res) => {
-    try {
-        const users = await User.find();
-
-        return res.json({
-            status: "success",
-            count: users.length,
-            users: users
-        });
-
-    } catch (err) {
-        return res.json({ status: "error" });
-    }
+app.get("/keys", (req, res) => {
+    res.json(loadDB());
 });
 
-// ================= START SERVER =================
+// ================= RESET HWID =================
+app.post("/reset", (req, res) => {
+    const { key } = req.body;
+
+    let db = loadDB();
+
+    if (!db[key]) {
+        return res.json({ status: "error", message: "not_found" });
+    }
+
+    db[key].hwid = null;
+
+    saveDB(db);
+
+    res.json({ status: "success", message: "hwid_reset" });
+});
+
+// ================= SERVER =================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("Server running on port", PORT);
+    console.log("Shaf3y server running on port " + PORT);
 });
