@@ -1,54 +1,120 @@
 const express = require("express");
+const mongoose = require("mongoose");
+
 const app = express();
+const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 
-// 🔥 test route (مهم جدًا)
-app.get("/", (req, res) => {
-  res.send("Server Working ✅");
+// ===================== DB =====================
+mongoose.connect(process.env.MONGO_URL)
+.then(() => console.log("MongoDB Connected 🔥"))
+.catch(err => console.log("Mongo Error:", err));
+
+// ===================== SCHEMA =====================
+const LicenseSchema = new mongoose.Schema({
+    key: String,
+    hwid: String,
+    isOnline: { type: Boolean, default: false },
+    lastSeen: Date
 });
 
-// 🔑 keys
-let keys = [
-  {
-    key: "ABC-123",
-    hwid: null,
-    used: false,
-    status: "active"
-  }
-];
+const License = mongoose.model("License", LicenseSchema);
 
-function activate(key, hwid, res) {
-  if (!key || !hwid) return res.send("missing_data");
+// ===================== ACTIVATE =====================
+app.post("/activate", async (req, res) => {
+    const { key, hwid } = req.body;
 
-  const k = keys.find(x => x.key === key);
+    const license = await License.findOne({ key });
 
-  if (!k) return res.send("invalid_key");
-  if (k.status !== "active") return res.send("banned");
+    if (!license)
+        return res.json({ status: "invalid" });
 
-  if (!k.used) {
-    k.used = true;
-    k.hwid = hwid;
-    return res.send("activated_first_time");
-  }
+    // ربط HWID أول مرة
+    if (!license.hwid) {
+        license.hwid = hwid;
+    }
 
-  if (k.hwid === hwid) return res.send("key_ok");
+    if (license.hwid !== hwid)
+        return res.json({ status: "used on another device" });
 
-  return res.send("hwid_error");
-}
+    // ===================== AUTO UNLOCK AFTER 3 SEC =====================
+    const now = Date.now();
+    const last = license.lastSeen ? new Date(license.lastSeen).getTime() : 0;
+    const diff = (now - last) / 1000;
 
-// ✅ GET
-app.get("/activate", (req, res) => {
-  activate(req.query.key, req.query.hwid, res);
+    // 🔥 3 seconds timeout
+    if (license.isOnline && diff > 3) {
+        license.isOnline = false;
+    }
+
+    // لو لسه شغال فعليًا
+    if (license.isOnline) {
+        return res.json({ status: "already running" });
+    }
+
+    license.isOnline = true;
+    license.lastSeen = new Date();
+
+    await license.save();
+
+    res.json({ status: "activated" });
 });
 
-// ✅ POST
-app.post("/activate", (req, res) => {
-  activate(req.body.key, req.body.hwid, res);
+// ===================== HEARTBEAT =====================
+app.post("/heartbeat", async (req, res) => {
+    const { key, hwid } = req.body;
+
+    const license = await License.findOne({ key });
+
+    if (!license)
+        return res.json({ status: "invalid" });
+
+    if (license.hwid === hwid) {
+        license.isOnline = true;
+        license.lastSeen = new Date();
+        await license.save();
+    }
+
+    res.json({ status: "ok" });
 });
 
-const PORT = process.env.PORT || 3000;
+// ===================== LOGOUT =====================
+app.post("/logout", async (req, res) => {
+    const { key, hwid } = req.body;
 
-app.listen(PORT, "0.0.0.0", () => {
-  console.log("Server running...");
+    const license = await License.findOne({ key });
+
+    if (!license)
+        return res.json({ status: "invalid" });
+
+    if (license.hwid === hwid) {
+        license.isOnline = false;
+        await license.save();
+    }
+
+    res.json({ status: "offline" });
+});
+
+// ===================== RESET =====================
+app.post("/reset", async (req, res) => {
+    const { key } = req.body;
+
+    const license = await License.findOne({ key });
+
+    if (!license)
+        return res.json({ status: "invalid" });
+
+    license.isOnline = false;
+    license.hwid = null;
+    license.lastSeen = null;
+
+    await license.save();
+
+    res.json({ status: "reset done" });
+});
+
+// ===================== START =====================
+app.listen(PORT, () => {
+    console.log("Server running on port " + PORT);
 });
