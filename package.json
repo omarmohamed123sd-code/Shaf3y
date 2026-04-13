@@ -1,12 +1,16 @@
 {
-  "name": "license-server",
+  "name": "shaf3y-server",
   "version": "1.0.0",
+  "description": "HWID Key System Server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "express": "^4.19.2",
     "mongoose": "^8.0.0"
+  },
+  "engines": {
+    "node": ">=18.x"
   }
 }
