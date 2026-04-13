@@ -22,61 +22,51 @@ function saveDB(db) {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 
-// ================= LOGIN / ACTIVATE =================
+// ================= HEALTH CHECK =================
+app.get("/", (req, res) => {
+    res.json({ status: "online" });
+});
+
+// ================= LOGIN =================
 app.post("/login", (req, res) => {
-    try {
-        const { key, hwid } = req.body || {};
+    const { key, hwid } = req.body || {};
 
-        if (!key || !hwid) {
-            return res.json({ status: "error", message: "missing_data" });
-        }
+    if (!key || !hwid)
+        return res.json({ status: "error", message: "missing_data" });
 
-        let db = loadDB();
+    let db = loadDB();
 
-        if (!db[key]) {
-            return res.json({ status: "error", message: "invalid_key" });
-        }
+    if (!db[key])
+        return res.json({ status: "error", message: "invalid_key" });
 
-        // أول مرة تفعيل
-        if (!db[key].hwid) {
-            db[key].hwid = hwid;
-            saveDB(db);
-
-            return res.json({ status: "success", message: "first_login" });
-        }
-
-        // نفس الجهاز
-        if (db[key].hwid === hwid) {
-            return res.json({ status: "success", message: "ok" });
-        }
-
-        // جهاز مختلف
-        return res.json({ status: "error", message: "hwid_locked" });
-
-    } catch (e) {
-        return res.json({ status: "error", message: "server_error" });
+    if (!db[key].hwid) {
+        db[key].hwid = hwid;
+        saveDB(db);
+        return res.json({ status: "success", message: "first_login" });
     }
+
+    if (db[key].hwid === hwid)
+        return res.json({ status: "success", message: "ok" });
+
+    return res.json({ status: "error", message: "hwid_locked" });
 });
 
 // ================= CREATE KEY =================
 app.post("/create", (req, res) => {
     const { key } = req.body || {};
 
-    if (!key) {
+    if (!key)
         return res.json({ status: "error", message: "no_key" });
-    }
 
     let db = loadDB();
 
-    if (db[key]) {
+    if (db[key])
         return res.json({ status: "error", message: "exists" });
-    }
 
     db[key] = { hwid: null };
-
     saveDB(db);
 
-    res.json({ status: "success", message: "created" });
+    res.json({ status: "success" });
 });
 
 // ================= DELETE KEY =================
@@ -85,19 +75,13 @@ app.delete("/key", (req, res) => {
 
     let db = loadDB();
 
-    if (!db[key]) {
+    if (!db[key])
         return res.json({ status: "error", message: "not_found" });
-    }
 
     delete db[key];
     saveDB(db);
 
-    res.json({ status: "success", message: "deleted" });
-});
-
-// ================= LIST KEYS =================
-app.get("/keys", (req, res) => {
-    res.json(loadDB());
+    res.json({ status: "success" });
 });
 
 // ================= RESET HWID =================
@@ -106,20 +90,22 @@ app.post("/reset", (req, res) => {
 
     let db = loadDB();
 
-    if (!db[key]) {
+    if (!db[key])
         return res.json({ status: "error", message: "not_found" });
-    }
 
     db[key].hwid = null;
-
     saveDB(db);
 
-    res.json({ status: "success", message: "hwid_reset" });
+    res.json({ status: "success" });
 });
 
-// ================= START =================
+// ================= KEYS LIST =================
+app.get("/keys", (req, res) => {
+    res.json(loadDB());
+});
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("🔥 Server running on port " + PORT);
+    console.log("Server running on port " + PORT);
 });
