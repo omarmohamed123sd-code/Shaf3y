@@ -2,6 +2,8 @@ const express = require("express");
 const mongoose = require("mongoose");
 
 const app = express();
+
+// ================= MIDDLEWARE =================
 app.use(express.json());
 
 // ================= MONGO =================
@@ -10,78 +12,85 @@ mongoose.connect(process.env.MONGO_URL)
     .catch(err => console.log(err));
 
 // ================= MODEL =================
-const LicenseSchema = new mongoose.Schema({
+const UserSchema = new mongoose.Schema({
+    username: String,
     key: String,
-    hwid: String, // الجهاز المرتبط
-    status: { type: String, default: "active" },
-    expiresAt: Date
+    hwid: String,
+    status: { type: String, default: "active" }
 });
 
-const License = mongoose.model("License", LicenseSchema);
+const User = mongoose.model("User", UserSchema);
 
-// ================= HEALTH =================
+// ================= HEALTH CHECK =================
 app.get("/", (req, res) => {
-    res.json({ status: "alive" });
+    res.json({ status: "server alive" });
 });
 
-// ================= CREATE KEY =================
-app.post("/admin/create", async (req, res) => {
-    const { key, days } = req.body;
+// ================= CREATE USER =================
+app.post("/create", async (req, res) => {
+    const { username, key } = req.body;
 
-    let expire = new Date();
-    expire.setDate(expire.getDate() + (days || 30));
+    if (!username || !key)
+        return res.json({ status: "missing_data" });
 
-    await License.create({
+    const exists = await User.findOne({ username });
+    if (exists)
+        return res.json({ status: "user_exists" });
+
+    await User.create({
+        username,
         key,
-        expiresAt: expire,
         hwid: null
     });
 
-    res.json({ status: "created", key });
+    res.json({ status: "created" });
 });
 
-// ================= ACTIVATE (MAIN LOGIC) =================
-app.post("/activate", async (req, res) => {
-    const { key, hwid } = req.body;
+// ================= LOGIN =================
+app.post("/login", async (req, res) => {
+    const { username, key, hwid } = req.body;
 
-    const license = await License.findOne({ key });
+    const user = await User.findOne({ username });
 
-    if (!license)
-        return res.json({ status: "invalid" });
+    if (!user)
+        return res.json({ status: "invalid_user" });
 
-    if (license.status === "banned")
+    if (user.key !== key)
+        return res.json({ status: "wrong_key" });
+
+    if (user.status === "banned")
         return res.json({ status: "banned" });
 
-    if (license.expiresAt && license.expiresAt < new Date())
-        return res.json({ status: "expired" });
-
-    // ================= FIRST TIME BIND =================
-    if (!license.hwid) {
-        license.hwid = hwid;
-        await license.save();
-        return res.json({ status: "activated_first_time" });
+    // ================= FIRST TIME HWID BIND =================
+    if (!user.hwid) {
+        user.hwid = hwid;
+        await user.save();
+        return res.json({ status: "first_login" });
     }
 
-    // ================= CHECK HWID =================
-    if (license.hwid !== hwid)
-        return res.json({ status: "blocked" });
+    // ================= HWID CHECK =================
+    if (user.hwid !== hwid)
+        return res.json({ status: "hwid_locked" });
 
-    return res.json({ status: "session" });
+    return res.json({ status: "success" });
 });
 
-// ================= BAN =================
-app.post("/admin/ban", async (req, res) => {
-    const { key } = req.body;
+// ================= BAN USER =================
+app.post("/ban", async (req, res) => {
+    const { username } = req.body;
 
-    await License.findOneAndUpdate(
-        { key },
-        { status: "banned" }
-    );
+    const user = await User.findOne({ username });
+
+    if (!user)
+        return res.json({ status: "not_found" });
+
+    user.status = "banned";
+    await user.save();
 
     res.json({ status: "banned" });
 });
 
-// ================= START =================
+// ================= START SERVER =================
 app.listen(process.env.PORT || 3000, () => {
     console.log("Server running");
 });
