@@ -8,51 +8,59 @@ app.use(express.json());
 
 const DB_FILE = "./keys.json";
 
-// ================= LOAD DB =================
+// ================= DB =================
 function loadDB() {
-    if (!fs.existsSync(DB_FILE)) return {};
-    return JSON.parse(fs.readFileSync(DB_FILE));
+    try {
+        if (!fs.existsSync(DB_FILE)) return {};
+        return JSON.parse(fs.readFileSync(DB_FILE, "utf8"));
+    } catch {
+        return {};
+    }
 }
 
-// ================= SAVE DB =================
-function saveDB(data) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+function saveDB(db) {
+    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 
 // ================= LOGIN / ACTIVATE =================
 app.post("/login", (req, res) => {
-    const { key, hwid } = req.body;
+    try {
+        const { key, hwid } = req.body || {};
 
-    if (!key || !hwid) {
-        return res.json({ status: "error", message: "missing_data" });
+        if (!key || !hwid) {
+            return res.json({ status: "error", message: "missing_data" });
+        }
+
+        let db = loadDB();
+
+        if (!db[key]) {
+            return res.json({ status: "error", message: "invalid_key" });
+        }
+
+        // أول مرة تفعيل
+        if (!db[key].hwid) {
+            db[key].hwid = hwid;
+            saveDB(db);
+
+            return res.json({ status: "success", message: "first_login" });
+        }
+
+        // نفس الجهاز
+        if (db[key].hwid === hwid) {
+            return res.json({ status: "success", message: "ok" });
+        }
+
+        // جهاز مختلف
+        return res.json({ status: "error", message: "hwid_locked" });
+
+    } catch (e) {
+        return res.json({ status: "error", message: "server_error" });
     }
-
-    let db = loadDB();
-
-    if (!db[key]) {
-        return res.json({ status: "error", message: "invalid_key" });
-    }
-
-    // أول تشغيل
-    if (!db[key].hwid) {
-        db[key].hwid = hwid;
-        saveDB(db);
-
-        return res.json({ status: "success", message: "first_login" });
-    }
-
-    // نفس الجهاز
-    if (db[key].hwid === hwid) {
-        return res.json({ status: "success", message: "activated" });
-    }
-
-    // جهاز مختلف
-    return res.json({ status: "error", message: "hwid_locked" });
 });
 
 // ================= CREATE KEY =================
 app.post("/create", (req, res) => {
-    const { key } = req.body;
+    const { key } = req.body || {};
 
     if (!key) {
         return res.json({ status: "error", message: "no_key" });
@@ -68,12 +76,12 @@ app.post("/create", (req, res) => {
 
     saveDB(db);
 
-    res.json({ status: "success", message: "key_created" });
+    res.json({ status: "success", message: "created" });
 });
 
 // ================= DELETE KEY =================
 app.delete("/key", (req, res) => {
-    const { key } = req.body;
+    const { key } = req.body || {};
 
     let db = loadDB();
 
@@ -82,20 +90,19 @@ app.delete("/key", (req, res) => {
     }
 
     delete db[key];
-
     saveDB(db);
 
     res.json({ status: "success", message: "deleted" });
 });
 
-// ================= GET ALL KEYS =================
+// ================= LIST KEYS =================
 app.get("/keys", (req, res) => {
     res.json(loadDB());
 });
 
 // ================= RESET HWID =================
 app.post("/reset", (req, res) => {
-    const { key } = req.body;
+    const { key } = req.body || {};
 
     let db = loadDB();
 
@@ -110,9 +117,9 @@ app.post("/reset", (req, res) => {
     res.json({ status: "success", message: "hwid_reset" });
 });
 
-// ================= SERVER =================
+// ================= START =================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("Shaf3y server running on port " + PORT);
+    console.log("🔥 Server running on port " + PORT);
 });
