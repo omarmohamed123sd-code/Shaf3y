@@ -1,8 +1,7 @@
 {
-  "name": "shaf3y-license-server",
+  "name": "shaf3y-server",
   "version": "1.0.0",
   "main": "server.js",
-  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
