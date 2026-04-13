@@ -3,7 +3,7 @@ const app = express();
 
 app.use(express.json());
 
-// 🔥 Users (مؤقت - بدل DB)
+// Users (مؤقت)
 let users = [
   {
     username: "test",
@@ -13,53 +13,57 @@ let users = [
   }
 ];
 
-// ✅ Root عشان يمنع Cannot GET /
+// Root
 app.get("/", (req, res) => {
   res.send("Server is running ✅");
 });
 
-// ✅ API الأساسي
-app.get("/api", (req, res) => {
-  try {
-    const { user, pass, hwid } = req.query;
-
-    if (!user || !pass || !hwid) {
-      return res.send("missing_data");
-    }
-
-    const account = users.find(
-      u => u.username === user && u.password === pass
-    );
-
-    if (!account) {
-      return res.send("invalid_login");
-    }
-
-    if (account.status !== "active") {
-      return res.send("banned");
-    }
-
-    // 🔥 أول مرة
-    if (!account.hwid) {
-      account.hwid = hwid;
-      return res.send("success_first_login");
-    }
-
-    // ✅ نفس الجهاز
-    if (account.hwid === hwid) {
-      return res.send("success");
-    }
-
-    // ❌ جهاز تاني
-    return res.send("hwid_error");
-
-  } catch (err) {
-    console.log(err);
-    return res.send("server_error");
+// 🔥 FUNCTION مشتركة
+function handleLogin(user, pass, hwid, res) {
+  if (!user || !pass || !hwid) {
+    return res.send("missing_data");
   }
+
+  const account = users.find(
+    u => u.username === user && u.password === pass
+  );
+
+  if (!account) {
+    return res.send("invalid_login");
+  }
+
+  if (account.status !== "active") {
+    return res.send("banned");
+  }
+
+  // أول مرة
+  if (!account.hwid) {
+    account.hwid = hwid;
+    return res.send("success_first_login");
+  }
+
+  // نفس الجهاز
+  if (account.hwid === hwid) {
+    return res.send("success");
+  }
+
+  // جهاز تاني
+  return res.send("hwid_error");
+}
+
+// ✅ GET
+app.get("/api", (req, res) => {
+  const { user, pass, hwid } = req.query;
+  handleLogin(user, pass, hwid, res);
 });
 
-// 🚀 تشغيل السيرفر (مهم لـ Railway)
+// ✅ POST (دي كانت ناقصة)
+app.post("/api", (req, res) => {
+  const { user, pass, hwid } = req.body;
+  handleLogin(user, pass, hwid, res);
+});
+
+// تشغيل السيرفر
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
