@@ -9,17 +9,37 @@ app.use(express.json());
 // ===================== DB =====================
 mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("MongoDB Connected 🔥"))
-.catch(err => console.log("Mongo Error:", err));
+.catch(err => console.log(err));
 
-// ===================== SCHEMA =====================
+// ===================== MODEL =====================
 const LicenseSchema = new mongoose.Schema({
     key: String,
-    hwid: String,
-    isOnline: { type: Boolean, default: false },
-    lastSeen: Date
+    hwid: String
 });
 
 const License = mongoose.model("License", LicenseSchema);
+
+// ===================== TEST =====================
+app.get("/", (req, res) => {
+    res.send("Server is working 🔥");
+});
+
+// ===================== ADD KEY =====================
+app.post("/addkey", async (req, res) => {
+    const { key } = req.body;
+
+    const exists = await License.findOne({ key });
+
+    if (exists)
+        return res.json({ status: "exists" });
+
+    await License.create({
+        key,
+        hwid: null
+    });
+
+    res.json({ status: "added" });
+});
 
 // ===================== ACTIVATE =====================
 app.post("/activate", async (req, res) => {
@@ -30,73 +50,30 @@ app.post("/activate", async (req, res) => {
     if (!license)
         return res.json({ status: "invalid" });
 
-    // ربط HWID أول مرة
+    // ===================== FIRST DEVICE =====================
     if (!license.hwid) {
         license.hwid = hwid;
-    }
-
-    if (license.hwid !== hwid)
-        return res.json({ status: "used on another device" });
-
-    // ===================== AUTO UNLOCK AFTER 3 SEC =====================
-    const now = Date.now();
-    const last = license.lastSeen ? new Date(license.lastSeen).getTime() : 0;
-    const diff = (now - last) / 1000;
-
-    // 🔥 3 seconds timeout
-    if (license.isOnline && diff > 3) {
-        license.isOnline = false;
-    }
-
-    // لو لسه شغال فعليًا
-    if (license.isOnline) {
-        return res.json({ status: "already running" });
-    }
-
-    license.isOnline = true;
-    license.lastSeen = new Date();
-
-    await license.save();
-
-    res.json({ status: "activated" });
-});
-
-// ===================== HEARTBEAT =====================
-app.post("/heartbeat", async (req, res) => {
-    const { key, hwid } = req.body;
-
-    const license = await License.findOne({ key });
-
-    if (!license)
-        return res.json({ status: "invalid" });
-
-    if (license.hwid === hwid) {
-        license.isOnline = true;
-        license.lastSeen = new Date();
         await license.save();
+
+        return res.json({
+            status: "session"
+        });
     }
 
-    res.json({ status: "ok" });
-});
-
-// ===================== LOGOUT =====================
-app.post("/logout", async (req, res) => {
-    const { key, hwid } = req.body;
-
-    const license = await License.findOne({ key });
-
-    if (!license)
-        return res.json({ status: "invalid" });
-
+    // ===================== SAME DEVICE =====================
     if (license.hwid === hwid) {
-        license.isOnline = false;
-        await license.save();
+        return res.json({
+            status: "session"
+        });
     }
 
-    res.json({ status: "offline" });
+    // ===================== DIFFERENT DEVICE =====================
+    return res.json({
+        status: "blocked"
+    });
 });
 
-// ===================== RESET =====================
+// ===================== RESET (ADMIN ONLY) =====================
 app.post("/reset", async (req, res) => {
     const { key } = req.body;
 
@@ -105,9 +82,7 @@ app.post("/reset", async (req, res) => {
     if (!license)
         return res.json({ status: "invalid" });
 
-    license.isOnline = false;
     license.hwid = null;
-    license.lastSeen = null;
 
     await license.save();
 
