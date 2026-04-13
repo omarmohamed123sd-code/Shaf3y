@@ -8,120 +8,73 @@ const PORT = process.env.PORT || 3000;
 
 // ================= DB =================
 mongoose.connect(process.env.MONGO_URL)
-.then(() => console.log("MongoDB Connected 🔥"))
+.then(() => console.log("MongoDB Connected"))
 .catch(err => console.log(err));
 
 // ================= MODEL =================
-const KeySchema = new mongoose.Schema({
-    key: { type: String, unique: true },
-    hwid: { type: String, default: null },
-    expiry: { type: Number, default: 0 }, // timestamp
-    status: { type: String, default: "active" }
+const LicenseSchema = new mongoose.Schema({
+    key: String,
+    hwid: String,
+    expiresAt: Date,
+    createdAt: { type: Date, default: Date.now }
 });
 
-const Key = mongoose.model("Key", KeySchema);
-
-// ================= HOME =================
-app.get("/", (req, res) => {
-    res.send("PRO License Server Running 🔥");
-});
+const License = mongoose.model("License", LicenseSchema);
 
 // ================= ADD KEY =================
 app.post("/addkey", async (req, res) => {
-    try {
-        const { key, days } = req.body;
+    const { key, days } = req.body;
 
-        if (!key) return res.json({ status: "missing_key" });
+    const exists = await License.findOne({ key });
+    if (exists) return res.json({ status: "exists" });
 
-        const exists = await Key.findOne({ key });
+    let expire = new Date();
+    expire.setDate(expire.getDate() + (days || 30));
 
-        if (exists) {
-            return res.json({ status: "exists" });
-        }
+    await License.create({
+        key,
+        hwid: null,
+        expiresAt: expire
+    });
 
-        let expiry = 0;
-        if (days) {
-            expiry = Date.now() + (days * 24 * 60 * 60 * 1000);
-        }
-
-        await Key.create({
-            key,
-            expiry
-        });
-
-        res.json({ status: "added", expiry });
-
-    } catch (err) {
-        res.json({ status: "error", error: err.message });
-    }
+    res.json({ status: "added", expiresAt: expire });
 });
 
 // ================= ACTIVATE =================
 app.post("/activate", async (req, res) => {
-    try {
-        const { key, hwid } = req.body;
+    const { key, hwid } = req.body;
 
-        if (!key || !hwid) {
-            return res.json({ status: "missing_data" });
-        }
+    if (!key || !hwid)
+        return res.json({ status: "bad_request" });
 
-        const license = await Key.findOne({ key });
+    const license = await License.findOne({ key });
 
-        if (!license) {
-            return res.json({ status: "invalid" });
-        }
+    if (!license)
+        return res.json({ status: "invalid" });
 
-        if (license.status !== "active") {
-            return res.json({ status: "banned" });
-        }
+    if (license.expiresAt < new Date())
+        return res.json({ status: "expired" });
 
-        // ⏳ check expiry
-        if (license.expiry !== 0 && Date.now() > license.expiry) {
-            return res.json({ status: "expired" });
-        }
-
-        // 🔥 first device bind
-        if (!license.hwid) {
-            license.hwid = hwid;
-            await license.save();
-            return res.json({ status: "activated_first" });
-        }
-
-        // 🟢 same device
-        if (license.hwid === hwid) {
-            return res.json({ status: "valid" });
-        }
-
-        // 🔴 different device
-        return res.json({ status: "blocked" });
-
-    } catch (err) {
-        res.json({ status: "error", error: err.message });
-    }
-});
-
-// ================= RESET =================
-app.post("/reset", async (req, res) => {
-    try {
-        const { key } = req.body;
-
-        const license = await Key.findOne({ key });
-
-        if (!license) {
-            return res.json({ status: "invalid" });
-        }
-
-        license.hwid = null;
+    if (!license.hwid)
+    {
+        license.hwid = hwid;
         await license.save();
 
-        res.json({ status: "reset_done" });
-
-    } catch (err) {
-        res.json({ status: "error", error: err.message });
+        return res.json({
+            status: "session",
+            expiresAt: license.expiresAt
+        });
     }
+
+    if (license.hwid === hwid)
+    {
+        return res.json({
+            status: "session",
+            expiresAt: license.expiresAt
+        });
+    }
+
+    return res.json({ status: "blocked" });
 });
 
-// ================= START =================
-app.listen(PORT, "0.0.0.0", () => {
-    console.log("Server running on port " + PORT);
-});
+app.listen(PORT, () => console.log("Server running on port " + PORT));
