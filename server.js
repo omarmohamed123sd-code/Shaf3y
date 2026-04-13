@@ -2,94 +2,126 @@ const express = require("express");
 const mongoose = require("mongoose");
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-
 app.use(express.json());
 
-// ===================== DB =====================
+const PORT = process.env.PORT || 3000;
+
+// ================= DB =================
 mongoose.connect(process.env.MONGO_URL)
 .then(() => console.log("MongoDB Connected 🔥"))
 .catch(err => console.log(err));
 
-// ===================== MODEL =====================
-const LicenseSchema = new mongoose.Schema({
-    key: String,
-    hwid: String
+// ================= MODEL =================
+const KeySchema = new mongoose.Schema({
+    key: { type: String, unique: true },
+    hwid: { type: String, default: null },
+    expiry: { type: Number, default: 0 }, // timestamp
+    status: { type: String, default: "active" }
 });
 
-const License = mongoose.model("License", LicenseSchema);
+const Key = mongoose.model("Key", KeySchema);
 
-// ===================== TEST =====================
+// ================= HOME =================
 app.get("/", (req, res) => {
-    res.send("Server is working 🔥");
+    res.send("PRO License Server Running 🔥");
 });
 
-// ===================== ADD KEY =====================
+// ================= ADD KEY =================
 app.post("/addkey", async (req, res) => {
-    const { key } = req.body;
+    try {
+        const { key, days } = req.body;
 
-    const exists = await License.findOne({ key });
+        if (!key) return res.json({ status: "missing_key" });
 
-    if (exists)
-        return res.json({ status: "exists" });
+        const exists = await Key.findOne({ key });
 
-    await License.create({
-        key,
-        hwid: null
-    });
+        if (exists) {
+            return res.json({ status: "exists" });
+        }
 
-    res.json({ status: "added" });
+        let expiry = 0;
+        if (days) {
+            expiry = Date.now() + (days * 24 * 60 * 60 * 1000);
+        }
+
+        await Key.create({
+            key,
+            expiry
+        });
+
+        res.json({ status: "added", expiry });
+
+    } catch (err) {
+        res.json({ status: "error", error: err.message });
+    }
 });
 
-// ===================== ACTIVATE =====================
+// ================= ACTIVATE =================
 app.post("/activate", async (req, res) => {
-    const { key, hwid } = req.body;
+    try {
+        const { key, hwid } = req.body;
 
-    const license = await License.findOne({ key });
+        if (!key || !hwid) {
+            return res.json({ status: "missing_data" });
+        }
 
-    if (!license)
-        return res.json({ status: "invalid" });
+        const license = await Key.findOne({ key });
 
-    // ===================== FIRST DEVICE =====================
-    if (!license.hwid) {
-        license.hwid = hwid;
+        if (!license) {
+            return res.json({ status: "invalid" });
+        }
+
+        if (license.status !== "active") {
+            return res.json({ status: "banned" });
+        }
+
+        // ⏳ check expiry
+        if (license.expiry !== 0 && Date.now() > license.expiry) {
+            return res.json({ status: "expired" });
+        }
+
+        // 🔥 first device bind
+        if (!license.hwid) {
+            license.hwid = hwid;
+            await license.save();
+            return res.json({ status: "activated_first" });
+        }
+
+        // 🟢 same device
+        if (license.hwid === hwid) {
+            return res.json({ status: "valid" });
+        }
+
+        // 🔴 different device
+        return res.json({ status: "blocked" });
+
+    } catch (err) {
+        res.json({ status: "error", error: err.message });
+    }
+});
+
+// ================= RESET =================
+app.post("/reset", async (req, res) => {
+    try {
+        const { key } = req.body;
+
+        const license = await Key.findOne({ key });
+
+        if (!license) {
+            return res.json({ status: "invalid" });
+        }
+
+        license.hwid = null;
         await license.save();
 
-        return res.json({
-            status: "session"
-        });
-    }
+        res.json({ status: "reset_done" });
 
-    // ===================== SAME DEVICE =====================
-    if (license.hwid === hwid) {
-        return res.json({
-            status: "session"
-        });
+    } catch (err) {
+        res.json({ status: "error", error: err.message });
     }
-
-    // ===================== DIFFERENT DEVICE =====================
-    return res.json({
-        status: "blocked"
-    });
 });
 
-// ===================== RESET (ADMIN ONLY) =====================
-app.post("/reset", async (req, res) => {
-    const { key } = req.body;
-
-    const license = await License.findOne({ key });
-
-    if (!license)
-        return res.json({ status: "invalid" });
-
-    license.hwid = null;
-
-    await license.save();
-
-    res.json({ status: "reset done" });
-});
-
-// ===================== START =====================
-app.listen(PORT, () => {
+// ================= START =================
+app.listen(PORT, "0.0.0.0", () => {
     console.log("Server running on port " + PORT);
 });
