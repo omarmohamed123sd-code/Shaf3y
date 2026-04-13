@@ -4,10 +4,15 @@ const mongoose = require("mongoose");
 const app = express();
 app.use(express.json());
 
+// ================= HEALTH CHECK =================
+app.get("/", (req, res) => {
+    res.json({ status: "server alive" });
+});
+
 // ================= MONGO =================
 mongoose.connect(process.env.MONGO_URL)
     .then(() => console.log("Mongo Connected"))
-    .catch(err => console.log(err));
+    .catch(err => console.log("Mongo Error:", err));
 
 // ================= MODEL =================
 const UserSchema = new mongoose.Schema({
@@ -20,39 +25,41 @@ const User = mongoose.model("User", UserSchema);
 
 // ================= LOGIN =================
 app.post("/login", async (req, res) => {
-    const { key, hwid } = req.body;
+    try {
+        const { key, hwid } = req.body;
 
-    // validation
-    if (!key || !hwid) {
-        return res.json({ status: "missing_data" });
+        if (!key || !hwid) {
+            return res.json({ status: "missing_data" });
+        }
+
+        const user = await User.findOne({ key });
+
+        if (!user) {
+            return res.json({ status: "wrong_key" });
+        }
+
+        if (user.banned) {
+            return res.json({ status: "banned" });
+        }
+
+        // first login bind
+        if (!user.hwid) {
+            user.hwid = hwid;
+            await user.save();
+            return res.json({ status: "first_login" });
+        }
+
+        // hwid mismatch
+        if (user.hwid !== hwid) {
+            return res.json({ status: "hwid_locked" });
+        }
+
+        return res.json({ status: "success" });
+
+    } catch (err) {
+        console.log(err);
+        return res.json({ status: "server_error" });
     }
-
-    const user = await User.findOne({ key });
-
-    // key not found
-    if (!user) {
-        return res.json({ status: "wrong_key" });
-    }
-
-    // banned check
-    if (user.banned) {
-        return res.json({ status: "banned" });
-    }
-
-    // first login → bind HWID
-    if (!user.hwid) {
-        user.hwid = hwid;
-        await user.save();
-        return res.json({ status: "first_login" });
-    }
-
-    // HWID mismatch
-    if (user.hwid !== hwid) {
-        return res.json({ status: "hwid_locked" });
-    }
-
-    // success login
-    return res.json({ status: "success" });
 });
 
 // ================= CREATE KEY =================
@@ -74,7 +81,7 @@ app.post("/create", async (req, res) => {
     return res.json({ status: "created" });
 });
 
-// ================= BAN =================
+// ================= BAN USER =================
 app.post("/ban", async (req, res) => {
     const { key } = req.body;
 
@@ -86,7 +93,9 @@ app.post("/ban", async (req, res) => {
     return res.json({ status: "banned" });
 });
 
-// ================= SERVER =================
-app.listen(3000, () => {
-    console.log("Server running on port 3000");
+// ================= START SERVER =================
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log("Server running on port", PORT);
 });
