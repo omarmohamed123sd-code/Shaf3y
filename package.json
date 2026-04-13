@@ -1,16 +1,13 @@
 {
   "name": "shaf3y-server",
   "version": "1.0.0",
-  "description": "Key + HWID Authentication Server",
   "main": "server.js",
+  "type": "module",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
-    "express": "^4.19.2",
-    "mongoose": "^8.0.0"
-  },
-  "engines": {
-    "node": ">=18.x"
+    "express": "^4.18.2",
+    "cors": "^2.8.5"
   }
 }
