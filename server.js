@@ -3,8 +3,10 @@ import cors from "cors";
 import fs from "fs";
 
 const app = express();
+
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const DB_FILE = "./keys.json";
 
@@ -22,7 +24,12 @@ function saveDB(db) {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
 }
 
-// ================= LOGIN (STRICT) =================
+// ================= ROOT (FIX CANNOT GET) =================
+app.get("/", (req, res) => {
+    res.json({ status: "online", message: "Shaf3y server running" });
+});
+
+// ================= LOGIN =================
 app.post("/login", (req, res) => {
     const { key, hwid } = req.body || {};
 
@@ -31,7 +38,7 @@ app.post("/login", (req, res) => {
 
     let db = loadDB();
 
-    // ❌ key غير موجود = invalid دائمًا
+    // ❌ key مش موجود
     if (!db[key]) {
         return res.json({ status: "error", message: "invalid_key" });
     }
@@ -62,8 +69,10 @@ app.post("/create", (req, res) => {
 
     let db = loadDB();
 
-    db[key] = { hwid: null };
+    if (db[key])
+        return res.json({ status: "error", message: "exists" });
 
+    db[key] = { hwid: null };
     saveDB(db);
 
     res.json({ status: "success", message: "created" });
@@ -73,21 +82,18 @@ app.post("/create", (req, res) => {
 app.delete("/key", (req, res) => {
     const key = req.body?.key || req.query?.key;
 
+    if (!key)
+        return res.json({ status: "error", message: "no_key" });
+
     let db = loadDB();
 
     if (!db[key])
         return res.json({ status: "error", message: "not_found" });
 
     delete db[key];
-
     saveDB(db);
 
     res.json({ status: "success", message: "deleted" });
-});
-
-// ================= LIST KEYS =================
-app.get("/keys", (req, res) => {
-    res.json(loadDB());
 });
 
 // ================= RESET HWID =================
@@ -100,15 +106,19 @@ app.post("/reset", (req, res) => {
         return res.json({ status: "error", message: "not_found" });
 
     db[key].hwid = null;
-
     saveDB(db);
 
     res.json({ status: "success", message: "reset" });
+});
+
+// ================= LIST KEYS =================
+app.get("/keys", (req, res) => {
+    res.json(loadDB());
 });
 
 // ================= START =================
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-    console.log("Server running on port " + PORT);
+    console.log("🔥 Server running on port " + PORT);
 });
