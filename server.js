@@ -3,7 +3,7 @@ const app = express();
 
 app.use(express.json());
 
-// 🔥 Users (مؤقت - ممكن تحوله DB بعدين)
+// 🔥 بيانات مؤقتة
 let users = [
   {
     username: "test",
@@ -12,12 +12,12 @@ let users = [
   }
 ];
 
-// 🟢 Home
+// 🟢 Test Route
 app.get("/", (req, res) => {
   res.send("Server Running ✅");
 });
 
-// 🔥 LOGIN FUNCTION
+// 🔥 Login Logic
 function login(user, hwid, res) {
   if (!user || !hwid) {
     return res.send("missing_data");
@@ -33,7 +33,7 @@ function login(user, hwid, res) {
     return res.send("banned");
   }
 
-  // 🟢 أول مرة تسجيل HWID
+  // 🟢 أول مرة يدخل
   if (!account.hwid) {
     account.hwid = hwid;
     return res.send("success_first_login");
@@ -58,7 +58,7 @@ app.post("/api", (req, res) => {
   login(req.body.user, req.body.hwid, res);
 });
 
-// 🚀 تشغيل السيرفر
+// 🚀 تشغيل السيرفر (مهم جدًا لـ Railway)
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
