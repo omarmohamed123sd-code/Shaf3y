@@ -3,67 +3,62 @@ const app = express();
 
 app.use(express.json());
 
-// Users (مؤقت)
+// 🔥 Users (مؤقت - ممكن تحوله DB بعدين)
 let users = [
   {
     username: "test",
-    password: "123",
     hwid: null,
     status: "active"
   }
 ];
 
-// Root
+// 🟢 Home
 app.get("/", (req, res) => {
-  res.send("Server is running ✅");
+  res.send("Server Running ✅");
 });
 
-// 🔥 FUNCTION مشتركة
-function handleLogin(user, pass, hwid, res) {
-  if (!user || !pass || !hwid) {
+// 🔥 LOGIN FUNCTION
+function login(user, hwid, res) {
+  if (!user || !hwid) {
     return res.send("missing_data");
   }
 
-  const account = users.find(
-    u => u.username === user && u.password === pass
-  );
+  const account = users.find(u => u.username === user);
 
   if (!account) {
-    return res.send("invalid_login");
+    return res.send("invalid_user");
   }
 
   if (account.status !== "active") {
     return res.send("banned");
   }
 
-  // أول مرة
+  // 🟢 أول مرة تسجيل HWID
   if (!account.hwid) {
     account.hwid = hwid;
     return res.send("success_first_login");
   }
 
-  // نفس الجهاز
+  // 🟢 نفس الجهاز
   if (account.hwid === hwid) {
     return res.send("success");
   }
 
-  // جهاز تاني
+  // 🔴 جهاز مختلف
   return res.send("hwid_error");
 }
 
-// ✅ GET
+// 🟢 GET
 app.get("/api", (req, res) => {
-  const { user, pass, hwid } = req.query;
-  handleLogin(user, pass, hwid, res);
+  login(req.query.user, req.query.hwid, res);
 });
 
-// ✅ POST (دي كانت ناقصة)
+// 🟢 POST
 app.post("/api", (req, res) => {
-  const { user, pass, hwid } = req.body;
-  handleLogin(user, pass, hwid, res);
+  login(req.body.user, req.body.hwid, res);
 });
 
-// تشغيل السيرفر
+// 🚀 تشغيل السيرفر
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, "0.0.0.0", () => {
