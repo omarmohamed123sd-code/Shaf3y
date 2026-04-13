@@ -1,7 +1,7 @@
 {
   "name": "shaf3y-server",
   "version": "1.0.0",
-  "description": "HWID Key System Server",
+  "description": "Key + HWID Authentication Server",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
