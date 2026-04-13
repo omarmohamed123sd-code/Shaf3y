@@ -1,5 +1,5 @@
 {
-  "name": "shaf3y-license-server",
+  "name": "license-server",
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
