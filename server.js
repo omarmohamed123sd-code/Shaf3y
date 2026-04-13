@@ -12,8 +12,8 @@ mongoose.connect(process.env.MONGO_URL)
 // ================= MODEL =================
 const UserSchema = new mongoose.Schema({
     key: String,
-    hwid: String,
-    status: { type: String, default: "active" }
+    hwid: { type: String, default: null },
+    banned: { type: Boolean, default: false }
 });
 
 const User = mongoose.model("User", UserSchema);
@@ -22,28 +22,36 @@ const User = mongoose.model("User", UserSchema);
 app.post("/login", async (req, res) => {
     const { key, hwid } = req.body;
 
-    if (!key || !hwid)
+    // validation
+    if (!key || !hwid) {
         return res.json({ status: "missing_data" });
+    }
 
     const user = await User.findOne({ key });
 
-    if (!user)
+    // key not found
+    if (!user) {
         return res.json({ status: "wrong_key" });
+    }
 
-    if (user.status === "banned")
+    // banned check
+    if (user.banned) {
         return res.json({ status: "banned" });
+    }
 
-    // أول مرة ربط HWID
+    // first login → bind HWID
     if (!user.hwid) {
         user.hwid = hwid;
         await user.save();
         return res.json({ status: "first_login" });
     }
 
-    // جهاز مختلف
-    if (user.hwid !== hwid)
+    // HWID mismatch
+    if (user.hwid !== hwid) {
         return res.json({ status: "hwid_locked" });
+    }
 
+    // success login
     return res.json({ status: "success" });
 });
 
@@ -51,13 +59,19 @@ app.post("/login", async (req, res) => {
 app.post("/create", async (req, res) => {
     const { key } = req.body;
 
+    if (!key) {
+        return res.json({ status: "missing_key" });
+    }
+
     const exists = await User.findOne({ key });
-    if (exists)
+
+    if (exists) {
         return res.json({ status: "key_exists" });
+    }
 
-    await User.create({ key, hwid: null });
+    await User.create({ key });
 
-    res.json({ status: "created" });
+    return res.json({ status: "created" });
 });
 
 // ================= BAN =================
@@ -66,12 +80,13 @@ app.post("/ban", async (req, res) => {
 
     await User.findOneAndUpdate(
         { key },
-        { status: "banned" }
+        { banned: true }
     );
 
-    res.json({ status: "banned" });
+    return res.json({ status: "banned" });
 });
 
+// ================= SERVER =================
 app.listen(3000, () => {
-    console.log("Server running");
+    console.log("Server running on port 3000");
 });
